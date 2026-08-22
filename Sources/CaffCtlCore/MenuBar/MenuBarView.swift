@@ -48,8 +48,21 @@ public struct MenuBarView: View {
         formatTimeText(seconds, suffix: "elapsed")
     }
 
-    private func formatRemainingText(_ seconds: TimeInterval) -> String {
-        formatTimeText(seconds, suffix: "left", roundUp: true)
+    private func formatClock(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    private var globalSessionTimeText: String {
+        guard let global = wakeManager.globalSession, !global.isExpired else { return "" }
+        if let remaining = global.remainingSeconds {
+            return formatClock(remaining) + " left"
+        }
+        return formatClock(now.timeIntervalSince(global.startDate))
     }
 
     public var body: some View {
@@ -64,8 +77,9 @@ public struct MenuBarView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(width: 250, height: 180)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .frame(width: 250)
         .onReceive(timer) { newDate in
             self.now = newDate
         }
@@ -73,109 +87,81 @@ public struct MenuBarView: View {
 
     // MARK: - Main Screen View
     private var mainScreenView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // 1. Header (Overall Status)
+        VStack(alignment: .leading, spacing: 0) {
+            // 1. Title + toggle (bold)
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(wakeManager.isActive ? Color.orange : Color.gray.opacity(0.2))
-                        .frame(width: 24, height: 24)
-                    Image(systemName: wakeManager.isActive ? "cup.and.saucer.fill" : "cup.and.saucer")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(wakeManager.isActive ? .white : .secondary)
-                }
-
                 Text("CaffCtl")
                     .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.primary)
 
                 Spacer()
 
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(wakeManager.isActive ? Color.green : Color.gray.opacity(0.6))
-                        .frame(width: 6, height: 6)
-                    Text(wakeManager.isActive ? "Active" : "Inactive")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(wakeManager.isActive ? .primary : .secondary)
-                }
+                Toggle("", isOn: Binding<Bool>(
+                    get: {
+                        wakeManager.globalSession != nil && !wakeManager.globalSession!.isExpired
+                    },
+                    set: { isTurnedOn in
+                        if isTurnedOn {
+                            wakeManager.activateGlobal(duration: nil)
+                        } else {
+                            wakeManager.deactivateGlobal()
+                        }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
             }
+            .padding(.bottom, 10)
 
             Divider()
 
-            // 2. Global Session Row
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("GLOBAL")
-                        .font(.system(size: 9, weight: .bold))
+            // 2. caffeinate + numeric session time
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("caffeinate")
+                        .font(.system(size: 11))
                         .foregroundColor(.secondary)
 
                     Spacer()
 
-                    Toggle("", isOn: Binding<Bool>(
-                        get: {
-                            wakeManager.globalSession != nil && !wakeManager.globalSession!.isExpired
-                        },
-                        set: { isTurnedOn in
-                            if isTurnedOn {
-                                wakeManager.activateGlobal(duration: nil)
-                            } else {
-                                wakeManager.deactivateGlobal()
-                            }
-                        }
-                    ))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .labelsHidden()
+                    Text(globalSessionTimeText)
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundColor(.secondary)
                 }
+                .padding(.vertical, 7)
 
-                // Clickable Duration / Status Row
+                // 3. Set Duration
                 Button {
                     navState.currentScreen = .durationSelection
                 } label: {
-                    HStack(alignment: .center) {
-                        if let global = wakeManager.globalSession, !global.isExpired {
-                            if let remaining = global.remainingSeconds {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(formatRemainingText(remaining))
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                    Text(formatElapsedText(now.timeIntervalSince(global.startDate)))
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                }
-                            } else {
-                                Text(formatElapsedText(now.timeIntervalSince(global.startDate)))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.primary)
-                            }
-                        } else {
-                            Text("Set duration")
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary)
-                        }
+                    HStack(spacing: 6) {
+                        Text("Set Duration")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
 
                         Spacer()
 
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.secondary.opacity(0.6))
                     }
                     .contentShape(Rectangle())
-                    .frame(height: 26)
                 }
                 .buttonStyle(.plain)
+                .padding(.vertical, 7)
             }
 
             Divider()
 
-            // 3. Sessions Row
+            // 4. Other Sessions (gray header, like "Other Networks")
             Button {
                 navState.currentScreen = .sessionsList
             } label: {
                 HStack(spacing: 6) {
-                    Text("Sessions")
-                        .font(.system(size: 12))
-                        .foregroundColor(.primary)
+                    Text("Other Sessions")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
 
                     Spacer()
 
@@ -190,17 +176,17 @@ public struct MenuBarView: View {
                     }
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.secondary.opacity(0.6))
                 }
                 .contentShape(Rectangle())
-                .frame(height: 22)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, 7)
 
             Divider()
 
-            // 4. Footer
+            // 5. Quit (tight footer)
             HStack {
                 Spacer()
 
@@ -210,14 +196,16 @@ public struct MenuBarView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "power")
+                            .font(.system(size: 10, weight: .medium))
                         Text("Quit")
+                            .font(.system(size: 10, weight: .medium))
                     }
-                    .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("q")
             }
+            .padding(.vertical, 7)
         }
     }
 

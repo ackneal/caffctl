@@ -55,8 +55,10 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = false
-        popover.contentSize = NSSize(width: 250, height: 180)
+        popover.contentSize = NSSize(width: 250, height: 178)
         let hostingController = NSHostingController(rootView: MenuBarView(wakeManager: appState.wakeManager, navState: navState))
+        // Popover height auto-fits the SwiftUI content — no dead space below Quit.
+        hostingController.sizingOptions = .preferredContentSize
         popover.contentViewController = hostingController
         popover.delegate = self
         self.popover = popover
