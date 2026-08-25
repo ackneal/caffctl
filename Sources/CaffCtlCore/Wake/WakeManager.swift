@@ -9,7 +9,7 @@ public final class WakeManager: ObservableObject {
     public private(set) var globalClientBinding: (any ProcessBindingProtocol)?
 
     public let caffeinateProcess: any CaffeinateProcessProtocol
-    private var globalUsesExternalAssertion = false
+    private var globalUsesTrackedCaffeinate = false
     private var trackedCaffeinatePIDs: Set<pid_t> = []
     private var expiryTask: Task<Void, Never>?
     private let bindingFactory: @Sendable (pid_t, @MainActor @Sendable @escaping (pid_t) -> Void) throws -> any ProcessBindingProtocol
@@ -79,7 +79,7 @@ public final class WakeManager: ObservableObject {
             isActive: isActive,
             global: globalInfo,
             processes: procInfos,
-            caffeinateRunning: caffeinateProcess.isRunning || globalUsesExternalAssertion || !trackedCaffeinatePIDs.isEmpty,
+            caffeinateRunning: caffeinateProcess.isRunning || globalUsesTrackedCaffeinate || !trackedCaffeinatePIDs.isEmpty,
             lastError: lastError
         )
     }
@@ -91,7 +91,7 @@ public final class WakeManager: ObservableObject {
             globalSession = nil
         }
 
-        let needsManagedAssertion = (globalSession != nil && !globalUsesExternalAssertion)
+        let needsManagedAssertion = (globalSession != nil && !globalUsesTrackedCaffeinate)
             || processBindings.keys.contains { !trackedCaffeinatePIDs.contains($0) }
 
         if needsManagedAssertion {
@@ -113,7 +113,7 @@ public final class WakeManager: ObservableObject {
 
     public func activateGlobal(duration: TimeInterval?, clientPID: pid_t? = nil) {
         clearGlobalClient()
-        globalUsesExternalAssertion = false
+        globalUsesTrackedCaffeinate = false
 
         let session = GlobalSession(duration: duration)
         self.globalSession = session
@@ -153,7 +153,7 @@ public final class WakeManager: ObservableObject {
         }
 
         clearGlobalClient()
-        globalUsesExternalAssertion = true
+        globalUsesTrackedCaffeinate = true
         globalSession = GlobalSession(duration: duration)
         globalClientBinding = binding
         lastError = nil
@@ -174,7 +174,7 @@ public final class WakeManager: ObservableObject {
         globalSession = nil
 
         clearGlobalClient()
-        globalUsesExternalAssertion = false
+        globalUsesTrackedCaffeinate = false
 
         Log.wake.info("\(reason)")
         reconcile()
@@ -186,7 +186,7 @@ public final class WakeManager: ObservableObject {
         globalClientBinding?.cancel()
         globalClientBinding = nil
         globalSession = nil
-        globalUsesExternalAssertion = false
+        globalUsesTrackedCaffeinate = false
         reconcile()
     }
 
@@ -257,7 +257,7 @@ public final class WakeManager: ObservableObject {
         expiryTask?.cancel()
         expiryTask = nil
         clearGlobalClient()
-        globalUsesExternalAssertion = false
+        globalUsesTrackedCaffeinate = false
         globalSession = nil
         cancelAllBindings()
         reconcile()
@@ -267,7 +267,7 @@ public final class WakeManager: ObservableObject {
         expiryTask?.cancel()
         expiryTask = nil
         clearGlobalClient()
-        globalUsesExternalAssertion = false
+        globalUsesTrackedCaffeinate = false
         cancelAllBindings()
         globalSession = nil
         caffeinateProcess.stop()
