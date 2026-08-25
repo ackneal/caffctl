@@ -11,6 +11,7 @@ public enum MenuBarScreen: Sendable {
 public final class MenuBarNavigationState: ObservableObject {
     @Published public var currentScreen: MenuBarScreen = .main
     @Published public var showingCustomInput: Bool = false
+    @Published public var isPopoverPresented = false
 
     public init() {}
 
@@ -23,10 +24,8 @@ public final class MenuBarNavigationState: ObservableObject {
 public struct MenuBarView: View {
     @ObservedObject public var wakeManager: WakeManager
     @ObservedObject public var navState: MenuBarNavigationState
-    @State private var now = Date()
     @State private var customMinutesString = ""
     @State private var copiedPID: pid_t? = nil
-    private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     public init(wakeManager: WakeManager, navState: MenuBarNavigationState? = nil) {
         self.wakeManager = wakeManager
@@ -57,12 +56,11 @@ public struct MenuBarView: View {
         return String(format: "%02d:%02d", m, s)
     }
 
-    private var globalSessionTimeText: String {
-        guard let global = wakeManager.globalSession, !global.isExpired else { return "" }
-        if let remaining = global.remainingSeconds {
-            return formatClock(remaining) + " left"
+    private func globalSessionTimeText(_ global: GlobalSession, at date: Date) -> String {
+        if let expiryDate = global.expiryDate {
+            return formatClock(expiryDate.timeIntervalSince(date)) + " left"
         }
-        return formatClock(now.timeIntervalSince(global.startDate))
+        return formatClock(date.timeIntervalSince(global.startDate))
     }
 
     public var body: some View {
@@ -78,11 +76,14 @@ public struct MenuBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
-        .padding(.bottom, 10)
+        .padding(.bottom, 7)
         .frame(width: 250)
-        .onReceive(timer) { newDate in
-            self.now = newDate
-        }
+    }
+
+    private func globalSessionTimeLabel(_ global: GlobalSession, at date: Date) -> some View {
+        Text(globalSessionTimeText(global, at: date))
+            .font(.system(size: 11).monospacedDigit())
+            .foregroundColor(.secondary)
     }
 
     // MARK: - Main Screen View
@@ -125,9 +126,15 @@ public struct MenuBarView: View {
 
                     Spacer()
 
-                    Text(globalSessionTimeText)
-                        .font(.system(size: 11).monospacedDigit())
-                        .foregroundColor(.secondary)
+                    if let global = wakeManager.globalSession, !global.isExpired {
+                        if navState.isPopoverPresented {
+                            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                                globalSessionTimeLabel(global, at: context.date)
+                            }
+                        } else {
+                            globalSessionTimeLabel(global, at: Date())
+                        }
+                    }
                 }
                 .padding(.vertical, 7)
 
@@ -200,12 +207,16 @@ public struct MenuBarView: View {
                         Text("Quit")
                             .font(.system(size: 10, weight: .medium))
                     }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
                     .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("q")
             }
-            .padding(.vertical, 7)
+            .padding(.top, 7)
+            .padding(.bottom, 2)
         }
     }
 
@@ -223,11 +234,13 @@ public struct MenuBarView: View {
                         Text("Set duration")
                             .font(.system(size: 12, weight: .bold))
                     }
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                     .foregroundColor(.primary)
                 }
                 .buttonStyle(.plain)
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 if wakeManager.globalSession != nil && !wakeManager.globalSession!.isExpired {
                     Button {
@@ -244,7 +257,7 @@ public struct MenuBarView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .frame(height: 20)
+            .frame(height: 28)
 
             Divider()
 
@@ -346,10 +359,12 @@ public struct MenuBarView: View {
                     Text("Sessions")
                         .font(.system(size: 12, weight: .bold))
                 }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
                 .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
-            .frame(height: 20)
+            .frame(height: 28)
 
             Divider()
 
@@ -363,11 +378,12 @@ public struct MenuBarView: View {
                     Spacer()
                 }
             } else {
-                ScrollView {
-                    VStack(spacing: 4) {
-                        ForEach(Array(wakeManager.processBindings.values.sorted { $0.pid < $1.pid }), id: \.pid) { binding in
-                            let elapsed = now.timeIntervalSince(binding.startDate)
-                            HStack(spacing: 8) {
+                TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach(Array(wakeManager.processBindings.values.sorted { $0.pid < $1.pid }), id: \.pid) { binding in
+                                let elapsed = context.date.timeIntervalSince(binding.startDate)
+                                HStack(spacing: 8) {
                                 Button {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString("\(binding.pid)", forType: .string)
@@ -419,13 +435,14 @@ public struct MenuBarView: View {
                                 .buttonStyle(.bordered)
                                 .controlSize(.mini)
                             }
-                            .padding(.vertical, 2)
-                            .contentShape(Rectangle())
-                            .help(binding.commandLine)
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
+                                .help(binding.commandLine)
+                            }
                         }
                     }
+                    .frame(maxHeight: 120)
                 }
-                .frame(maxHeight: 120)
             }
         }
     }

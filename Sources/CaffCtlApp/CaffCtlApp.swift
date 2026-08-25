@@ -107,6 +107,7 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
         } else {
             // ALWAYS reset to main screen before opening!
             navState.resetToMain()
+            navState.isPopoverPresented = true
             updateStatusItemTitleNow()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
@@ -115,6 +116,7 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         // ALWAYS reset to main screen on close!
+        navState.isPopoverPresented = false
         navState.resetToMain()
         updateStatusItemTitleNow()
     }
