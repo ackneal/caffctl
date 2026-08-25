@@ -1,42 +1,25 @@
-# ☕ CaffCtl
+# CaffCtl — macOS Caffeinate Menu Bar App
 
-> **The Modern, Native macOS Sleep Prevention Tool & `caffeinate` Manager**  
-> *Keep your Mac awake during long tasks, builds, and downloads — seamlessly integrated into both your Menu Bar and Terminal.*
+**Keep your Mac awake, prevent macOS sleep, and manage native `caffeinate` sessions from the menu bar.** CaffCtl is a lightweight Swift app and command-line wrapper for `/usr/bin/caffeinate`.
 
-[![macOS](https://img.shields.io/badge/macOS-14.0%2B-black?style=flat-square&logo=apple)](https://apple.com)
-[![Swift](https://img.shields.io/badge/Swift-6.0-orange?style=flat-square&logo=swift)](https://swift.org)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+[![macOS 14+](https://img.shields.io/badge/macOS-14.0%2B-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
+[![Swift 6](https://img.shields.io/badge/Swift-6.0-orange?style=flat-square&logo=swift)](https://swift.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
----
+## Why CaffCtl?
 
-## 🌟 Why CaffCtl?
+macOS includes the powerful `caffeinate` command, but native assertions are difficult to see and manage after they start. CaffCtl adds a menu bar interface without replacing native caffeinate behavior.
 
-If you are a developer, designer, or power user running long-running jobs (e.g. `make`, `npm build`, `cargo build`, machine learning models, database migrations, or large file transfers), macOS sleep mode can unexpectedly pause your progress.
+- **Prevent Mac sleep.** Keep macOS awake indefinitely, for a fixed duration, while a command runs, or while a PID exists.
+- **Use native caffeinate.** Wrapper arguments pass unchanged to `/usr/bin/caffeinate`, including `-d`, `-i`, `-m`, `-s`, `-u`, `-t`, and `-w`.
+- **See active assertions.** View Global wake assertions and command/PID Sessions from the macOS menu bar.
+- **Release assertions safely.** Stop a tracked caffeinate process without directly terminating its wrapped command or `-w` target.
+- **Keep working if tracking fails.** The native caffeinate assertion still runs if the CaffCtl app or IPC tracking is unavailable.
+- **Stay lightweight.** Native Swift, no third-party dependencies, and no background UI refresh while the popover is closed.
 
-**CaffCtl** bridges the gap between Apple's native command-line `/usr/bin/caffeinate` and a beautiful, minimalist Menu Bar App. It gives you full visual oversight and instant terminal control without messy background processes or battery drain.
+## Quick Start
 
----
-
-## ✨ Features
-
-- ☕ **Native & Minimalist Menu Bar UI**  
-  A clean, monochrome SF Symbol coffee cup indicator that seamlessly blends with your macOS desktop. Click to see remaining time, active sessions, and quick toggles.
-- ⚡ **Zero-Configuration Timers**  
-  Quickly set sleep prevention for **30 minutes**, **1 hour**, **2 hours**, **4 hours**, or custom minutes — or keep awake indefinitely.
-- 🛠 **Native `caffeinate` Wrapper**
-  Use `caffeinate` exactly as you normally would (`caffeinate make`, `caffeinate -d -i -t 3600`). Every argument is passed unchanged to `/usr/bin/caffeinate`; CaffCtl only adds Menu Bar tracking.
-- 🔍 **Real-Time Process & Session Monitor**  
-  View all active processes keeping your Mac awake with elapsed running times. Hover to inspect full command lines, click the process icon to copy its PID, or click **Release** to stop watching anytime.
-- 🚀 **Auto-Launching Terminal Integration**  
-  Running `caffeinate` in Terminal automatically launches the Menu Bar App in the background for tracking.
-- 🛡 **Safe, Reliable & Energy Efficient**  
-  Native caffeinate remains responsible for the sleep assertion and releases it when the process exits. If the App or tracking IPC is unavailable, sleep prevention still works; only Menu Bar tracking is skipped.
-
----
-
-## 📦 Installation
-
-Clone the repository and run the automated installer:
+### 1. Install CaffCtl
 
 ```bash
 git clone https://github.com/ackneal/caffctl.git
@@ -44,70 +27,200 @@ cd caffctl
 ./scripts/install.sh
 ```
 
-> **What this script does:**  
-> 1. Compiles the high-performance release build with Swift 6.  
-> 2. Installs `CaffCtl.app` into `/Applications/`.  
-> 3. Links `caffeinate` to `~/.local/bin/` for seamless terminal use and instant Tab autocomplete.
+The installer:
 
----
+1. Builds CaffCtl in release mode.
+2. Installs `CaffCtl.app` in `/Applications`.
+3. Links `~/.local/bin/caffeinate` to the bundled wrapper.
 
-## 💻 How to Use
+The app does not create or change command-line symlinks at runtime. Wrapper installation is handled only by `scripts/install.sh`.
 
-### 1. Transparent `caffeinate` Wrapper Mode
-
-Wrapper arguments are passed unchanged to native macOS `/usr/bin/caffeinate`:
+### 2. Confirm the wrapper is active
 
 ```bash
-# Wrap long-running compilation or scripts in foreground
-caffeinate make -j8
-
-# Keep Mac awake in background with standard & job
-caffeinate sleep 3600 &
-caffeinate &
-
-# Watch an existing process by PID
-caffeinate -w 84210
-
-# Set timed wake lock
-caffeinate -t 3600
+which caffeinate
 ```
 
-> Caffeinate without a utility or `-w` target appears as **Global**. `caffeinate <command>` and `caffeinate -w <PID>` appear under **Sessions**. CaffCtl may stop the tracked native caffeinate process to release its assertion, but never signals its command or `-w` target.
+Expected path:
 
----
+```text
+/Users/your-name/.local/bin/caffeinate
+```
 
-### 2. Menu Bar GUI Interactions
+If another path appears, add `~/.local/bin` before `/usr/bin` in your shell `PATH`:
 
-| Action | How to use |
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that line to `~/.zshrc` to keep it after restarting Terminal.
+
+### 3. Keep your Mac awake
+
+```bash
+# Keep the Mac awake until you stop caffeinate
+caffeinate &
+
+# Prevent idle sleep for one hour
+caffeinate -i -t 3600
+
+# Keep the display and Mac awake for five minutes
+caffeinate -d -i -t 300
+
+# Keep the Mac awake while a build runs
+caffeinate make -j8
+
+# Keep the Mac awake while an existing PID is alive
+caffeinate -w 84210
+```
+
+Running the wrapper automatically launches CaffCtl for menu bar tracking. Native caffeinate starts independently, so sleep prevention does not depend on the app launching successfully.
+
+## Global vs Sessions
+
+CaffCtl groups native caffeinate assertions by how they are used:
+
+| Type | Examples | Menu bar behavior |
+| :--- | :--- | :--- |
+| **Global** | `caffeinate &`, `caffeinate -i -t 3600` | Shows one indefinite or timed Global assertion. Starting another Global replaces the previous tracked Global. |
+| **Session** | `caffeinate make`, `caffeinate -w 84210` | Shows each tracked native caffeinate PID under Sessions with elapsed time and process metadata. |
+
+## Process Ownership and Safe Release
+
+CaffCtl owns the lifecycle of native caffeinate processes registered through its wrapper. It does not own the command or PID that caffeinate watches.
+
+```text
+caffeinate make
+
+native caffeinate PID 100  → CaffCtl may terminate PID 100
+make PID 200               → CaffCtl never signals PID 200
+```
+
+```text
+caffeinate -w 300
+
+native caffeinate PID 100  → CaffCtl may terminate PID 100
+watched target PID 300     → CaffCtl never signals PID 300
+```
+
+Clicking **Release**, choosing **Stop**, or quitting CaffCtl removes the tracked sleep assertion by terminating the native caffeinate PID. A wrapped command or watched target continues running.
+
+## Menu Bar Controls
+
+| Control | Action |
 | :--- | :--- |
-| **Toggle Indefinite Awake** | Click the Menu Bar coffee icon ➜ Flip the **GLOBAL** switch. |
-| **Choose Duration Preset** | Click the Duration row ➜ Pick `30 min`, `1 hr`, `2 hr`, `4 hr`, or enter `Custom...`. |
-| **Inspect Active Sessions** | Click `Sessions [ N ]` to view all watching processes. |
-| **Copy Process PID** | Click any process icon in the Sessions list to copy its PID (with green `✓` feedback). |
-| **View Full Command Line** | Hover your mouse over any session row to see the exact terminal command. |
-| **Release a Session** | Click **Release** to terminate the tracked native caffeinate assertion. Its wrapped command or `-w` target keeps running. |
-| **Quit CaffCtl** | Click **Quit** (`⌘Q`) at the bottom right. |
+| **Global switch** | Start or stop an indefinite CaffCtl-managed wake assertion. |
+| **Set Duration** | Keep the Mac awake for 30 minutes, 1 hour, 2 hours, 4 hours, or custom minutes. |
+| **Global timer** | Show elapsed time or a live remaining-time countdown while the popover is open. |
+| **Other Sessions** | Inspect command and PID-based caffeinate sessions. |
+| **Process icon** | Copy the tracked PID. |
+| **Session row** | Hover to view the current command line. |
+| **Release** | Stop the native caffeinate assertion without directly stopping its command or watched PID. |
+| **Quit** | Stop tracked assertions and close CaffCtl. |
 
----
+## Native Caffeinate Compatibility
 
-## 📋 Command Cheat Sheet
+The wrapper replaces its own process with native caffeinate:
 
-| Command | Action |
+```text
+CaffCtl wrapper → execv("/usr/bin/caffeinate", original arguments)
+```
+
+This preserves the PID and delegates assertion semantics to macOS. CaffCtl tracks that PID and resolves process metadata after `execv`, so the menu bar reflects native caffeinate rather than the temporary wrapper.
+
+Common native flags:
+
+| Flag | Native macOS behavior |
 | :--- | :--- |
-| `caffeinate &` | Run an indefinite native wake assertion in the background (shows as Global) |
-| `caffeinate -t <seconds>` | Run a timed native wake assertion (shows as Global) |
-| `caffeinate -w <PID>` | Keep awake while a PID is running (shows in Sessions) |
-| `caffeinate <command>` | Run a command with a native sleep assertion and Session monitoring |
+| `-d` | Prevent display sleep. |
+| `-i` | Prevent idle system sleep. |
+| `-m` | Prevent idle disk sleep. |
+| `-s` | Prevent system sleep while on AC power. |
+| `-u` | Declare user activity. |
+| `-t <seconds>` | Release the assertion after a timeout. |
+| `-w <PID>` | Release the assertion when the PID exits. |
 
----
+See the macOS manual for complete native behavior:
 
-## 🛠 Requirements
+```bash
+man caffeinate
+```
 
-- **System**: macOS 14.0 (Sonoma) or later (Apple Silicon & Intel supported)
-- **Building from Source**: Swift 6.0+ / Xcode 16.0+ (Command Line Tools)
+## Command Examples
 
----
+| Command | Result |
+| :--- | :--- |
+| `caffeinate &` | Indefinite Global assertion in the background. |
+| `caffeinate -i -t 1800` | Prevent idle sleep for 30 minutes. |
+| `caffeinate -d -i -t 300` | Keep the display and system awake for five minutes. |
+| `caffeinate make` | Prevent sleep while `make` runs and show it as a Session. |
+| `caffeinate npm run build` | Prevent sleep while an npm build runs. |
+| `caffeinate -w 84210` | Prevent sleep until PID 84210 exits. |
 
-## 📄 License
+## Build and Test
 
-This project is licensed under the [MIT License](LICENSE).
+Requirements:
+
+- **Operating system:** macOS 14 Sonoma or later
+- **Toolchain:** Swift 6 or Xcode 16 Command Line Tools
+- **Dependencies:** none
+
+Build the project:
+
+```bash
+swift build
+```
+
+Run the Swift package tests:
+
+```bash
+swift test
+```
+
+Run the standalone invariant test suite:
+
+```bash
+swift run CaffCtlTestsRunner
+```
+
+## Troubleshooting
+
+### `which caffeinate` still shows `/usr/bin/caffeinate`
+
+Ensure `~/.local/bin` comes before `/usr/bin`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+rehash
+```
+
+Open a new Terminal window and run `which caffeinate` again.
+
+### CaffCtl does not show a session
+
+The native assertion still works when tracking fails. Confirm the app is installed:
+
+```bash
+open -a CaffCtl
+```
+
+Then start a new caffeinate command.
+
+### Check active macOS sleep assertions
+
+```bash
+pmset -g assertions | grep -A20 -i caffeinate
+```
+
+### Stop a background caffeinate command
+
+Use the shell job or PID that started it:
+
+```bash
+jobs -l
+kill <caffeinate-pid>
+```
+
+## License
+
+CaffCtl is available under the [MIT License](LICENSE).
