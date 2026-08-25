@@ -20,6 +20,23 @@ final class TestBox<T: Sendable>: @unchecked Sendable {
     }
 }
 
+final class SignalRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedSignals: [(pid_t, Int32)] = []
+
+    func send(pid: pid_t, signal: Int32) {
+        lock.lock()
+        recordedSignals.append((pid, signal))
+        lock.unlock()
+    }
+
+    var signals: [(pid_t, Int32)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedSignals
+    }
+}
+
 final class MockTracker: @unchecked Sendable {
     private let lock = NSLock()
     private var bindings: [pid_t: MockProcessBinding] = [:]
@@ -38,7 +55,7 @@ final class MockTracker: @unchecked Sendable {
 @MainActor
 func runAllTests() async {
     print("========================================")
-    print("Running CaffCtl Suite (15 Invariant Tests)")
+    print("Running CaffCtl Suite (21 Invariant Tests)")
     print("========================================")
     
     var passed = 0
@@ -230,6 +247,7 @@ func runAllTests() async {
         
         manager.cleanup()
         assert(!mock.isRunning)
+        assert(mock.stopCallCount == 1)
         assert(manager.globalSession == nil)
         assert(manager.processBindings.isEmpty)
         assert(cancelledBox.value)
@@ -239,7 +257,8 @@ func runAllTests() async {
     await runTest(name: "Test 12: Bound process -> observe-only, never sent signals") {
         let mock = MockCaffeinateProcess()
         let tracker = MockTracker()
-        let manager = WakeManager(caffeinateProcess: mock) { pid, onExit in
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: mock, signalSender: signals.send) { pid, onExit in
             let b = MockProcessBinding(pid: pid, onExit: onExit)
             tracker.record(b)
             return b
@@ -250,6 +269,7 @@ func runAllTests() async {
         
         let binding = tracker[7001]
         assert(binding?.isCancelled == true)
+        assert(signals.signals.isEmpty)
         assert(binding?.signalsSent.isEmpty == true)
     }
 
@@ -278,7 +298,8 @@ func runAllTests() async {
     // 14. Tracked native caffeinate does not start a managed assertion
     await runTest(name: "Test 14: Tracked caffeinate remains tracking-only") {
         let mock = MockCaffeinateProcess()
-        let manager = WakeManager(caffeinateProcess: mock) { pid, onExit in
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: mock, signalSender: signals.send) { pid, onExit in
             MockProcessBinding(pid: pid, onExit: onExit)
         }
 
@@ -291,10 +312,91 @@ func runAllTests() async {
         manager.unbindProcess(pid: 8001)
         assert(!manager.isActive)
         assert(!manager.statusInfo.caffeinateRunning)
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8001)
     }
 
-    // 15. Malformed IPC message -> clean rejection without crash
-    await runTest(name: "Test 15: Malformed IPC message -> clean rejection without crash") {
+    // 15. Tracked Global deactivation terminates caffeinate
+    await runTest(name: "Test 15: Tracked Global deactivation sends SIGTERM") {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+        try manager.trackGlobal(pid: 8101, duration: nil)
+        manager.deactivateGlobal()
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8101)
+    }
+
+    // 16. Tracked Global cleanup terminates caffeinate
+    await runTest(name: "Test 16: Tracked Global cleanup sends SIGTERM") {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+        try manager.trackGlobal(pid: 8102, duration: nil)
+        manager.cleanup()
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8102)
+    }
+
+    // 17. Tracked Global stopAll terminates caffeinate
+    await runTest(name: "Test 17: Tracked Global stopAll sends SIGTERM") {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+        try manager.trackGlobal(pid: 8103, duration: nil)
+        manager.stopAll()
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8103)
+    }
+
+    // 18. Replacing a tracked Global terminates the previous caffeinate
+    await runTest(name: "Test 18: Tracked Global replacement sends SIGTERM") {
+        let signals = SignalRecorder()
+        let tracker = MockTracker()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            let binding = MockProcessBinding(pid: pid, onExit: onExit)
+            tracker.record(binding)
+            return binding
+        }
+        try manager.trackGlobal(pid: 8104, duration: nil)
+        try manager.trackGlobal(pid: 8105, duration: nil)
+        assert(tracker[8104]?.isCancelled == true)
+        assert(manager.globalClientBinding?.pid == 8105)
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8104)
+    }
+
+    // 19. Tracked Session cleanup signals only caffeinate
+    await runTest(name: "Test 19: Session cleanup preserves wrapped command") {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+        try manager.trackCaffeinate(pid: 8201)
+        try manager.bindProcess(pid: 9201)
+        manager.cleanup()
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8201)
+    }
+
+    // 20. Tracked Session stopAll signals only caffeinate
+    await runTest(name: "Test 20: Session stopAll preserves watch target") {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+        try manager.trackCaffeinate(pid: 8202)
+        try manager.bindProcess(pid: 9202)
+        manager.stopAll()
+        assert(signals.signals.count == 1)
+        assert(signals.signals.first?.0 == 8202)
+    }
+
+    // 21. Malformed IPC message -> clean rejection without crash
+    await runTest(name: "Test 21: Malformed IPC message -> clean rejection without crash") {
         let mock = MockCaffeinateProcess()
         let manager = WakeManager(caffeinateProcess: mock)
         let socketPath = "/tmp/caff-test-\(UUID().uuidString.prefix(8)).sock"

@@ -104,6 +104,25 @@ public final class MockProcessBinding: ProcessBindingProtocol, @unchecked Sendab
     }
 }
 
+public final class SignalRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedSignals: [(pid_t, Int32)] = []
+
+    public init() {}
+
+    public func send(pid: pid_t, signal: Int32) {
+        lock.lock()
+        recordedSignals.append((pid, signal))
+        lock.unlock()
+    }
+
+    public var signals: [(pid_t, Int32)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedSignals
+    }
+}
+
 public final class BindingTracker: @unchecked Sendable {
     private let lock = NSLock()
     private var bindings: [pid_t: MockProcessBinding] = [:]
@@ -334,6 +353,7 @@ public final class BindingTracker: @unchecked Sendable {
 
         manager.cleanup()
         #expect(!mockCaffeinate.isRunning)
+        #expect(mockCaffeinate.stopCallCount == 1)
         #expect(manager.globalSession == nil)
         #expect(manager.processBindings.isEmpty)
         #expect(tracker[6001]?.isCancelled == true)
@@ -344,7 +364,8 @@ public final class BindingTracker: @unchecked Sendable {
     func test12_caffeineNeverSendsSignalsToBoundProcess() {
         let mockCaffeinate = MockCaffeinateProcess()
         let tracker = BindingTracker()
-        let manager = WakeManager(caffeinateProcess: mockCaffeinate) { pid, onExit in
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: mockCaffeinate, signalSender: signals.send) { pid, onExit in
             let b = MockProcessBinding(pid: pid, onExit: onExit)
             tracker.record(b)
             return b
@@ -360,6 +381,7 @@ public final class BindingTracker: @unchecked Sendable {
         }
 
         #expect(binding.isCancelled)
+        #expect(signals.signals.isEmpty)
         #expect(binding.signalsSent.isEmpty, "Signals were sent to bound PID, violating observe-only constraint!")
     }
 
@@ -376,6 +398,86 @@ public final class BindingTracker: @unchecked Sendable {
         #expect(throws: ProcessBindingError.invalidPID(-100)) {
             try manager.bindProcess(pid: -100)
         }
+    }
+
+    @Test @MainActor
+    func trackedGlobalDeactivateTerminatesCaffeinate() throws {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackGlobal(pid: 8101, duration: nil)
+        manager.deactivateGlobal()
+
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8101)
+        #expect(signals.signals.first?.1 == SIGTERM)
+    }
+
+    @Test @MainActor
+    func trackedGlobalCleanupTerminatesCaffeinate() throws {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackGlobal(pid: 8102, duration: nil)
+        manager.cleanup()
+
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8102)
+        #expect(signals.signals.first?.1 == SIGTERM)
+    }
+
+    @Test @MainActor
+    func trackedGlobalStopAllTerminatesCaffeinate() throws {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackGlobal(pid: 8103, duration: nil)
+        manager.stopAll()
+
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8103)
+        #expect(signals.signals.first?.1 == SIGTERM)
+    }
+
+    @Test @MainActor
+    func replacingTrackedGlobalTerminatesPreviousCaffeinate() throws {
+        let signals = SignalRecorder()
+        let tracker = BindingTracker()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            let binding = MockProcessBinding(pid: pid, onExit: onExit)
+            tracker.record(binding)
+            return binding
+        }
+
+        try manager.trackGlobal(pid: 8104, duration: nil)
+        try manager.trackGlobal(pid: 8105, duration: nil)
+
+        #expect(tracker[8104]?.isCancelled == true)
+        #expect(manager.globalClientBinding?.pid == 8105)
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8104)
+        #expect(signals.signals.first?.1 == SIGTERM)
+    }
+
+    @Test @MainActor
+    func managedGlobalClientIsTerminatedOnCleanup() {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        manager.activateGlobal(duration: nil, clientPID: 8106)
+        manager.cleanup()
+
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8106)
+        #expect(signals.signals.first?.1 == SIGTERM)
     }
 
     @Test @MainActor
@@ -397,7 +499,8 @@ public final class BindingTracker: @unchecked Sendable {
     @Test @MainActor
     func trackedCaffeinateDoesNotStartManagedAssertion() throws {
         let mockCaffeinate = MockCaffeinateProcess()
-        let manager = WakeManager(caffeinateProcess: mockCaffeinate) { pid, onExit in
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: mockCaffeinate, signalSender: signals.send) { pid, onExit in
             MockProcessBinding(pid: pid, onExit: onExit)
         }
 
@@ -411,6 +514,43 @@ public final class BindingTracker: @unchecked Sendable {
         manager.unbindProcess(pid: 8001)
         #expect(!manager.isActive)
         #expect(!manager.statusInfo.caffeinateRunning)
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8001)
+        #expect(signals.signals.first?.1 == SIGTERM)
+    }
+
+    @Test @MainActor
+    func trackedSessionCleanupSignalsOnlyCaffeinateNotWrappedCommand() throws {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackCaffeinate(pid: 8201)
+        try manager.bindProcess(pid: 9201)
+        manager.cleanup()
+
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8201)
+        #expect(signals.signals.first?.1 == SIGTERM)
+        #expect(!signals.signals.contains { $0.0 == 9201 })
+    }
+
+    @Test @MainActor
+    func trackedSessionStopAllSignalsOnlyCaffeinateNotWatchTarget() throws {
+        let signals = SignalRecorder()
+        let manager = WakeManager(caffeinateProcess: MockCaffeinateProcess(), signalSender: signals.send) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackCaffeinate(pid: 8202)
+        try manager.bindProcess(pid: 9202)
+        manager.stopAll()
+
+        #expect(signals.signals.count == 1)
+        #expect(signals.signals.first?.0 == 8202)
+        #expect(signals.signals.first?.1 == SIGTERM)
+        #expect(!signals.signals.contains { $0.0 == 9202 })
     }
 
     // Test 14: Malformed IPC message -> clean rejection without crash

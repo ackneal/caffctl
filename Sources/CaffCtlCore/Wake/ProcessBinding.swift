@@ -34,11 +34,12 @@ public enum ProcessBindingError: LocalizedError, Sendable, Equatable {
 
 public final class ProcessBinding: ProcessBindingProtocol, @unchecked Sendable {
     public let pid: pid_t
-    public let processName: String
-    public let commandLine: String
-    public let fullPath: String
     public let startDate: Date
-    public let appIcon: NSImage?
+
+    public var processName: String { Self.resolveProcessName(pid: pid) }
+    public var commandLine: String { Self.resolveCommandLine(pid: pid) }
+    public var fullPath: String { Self.resolveProcessPath(pid: pid) }
+    public var appIcon: NSImage? { NSRunningApplication(processIdentifier: pid)?.icon }
     private var source: (any DispatchSourceProcess)?
     private let lock = NSLock()
 
@@ -143,17 +144,13 @@ public final class ProcessBinding: ProcessBindingProtocol, @unchecked Sendable {
         }
 
         self.pid = pid
-        self.processName = Self.resolveProcessName(pid: pid)
-        self.commandLine = Self.resolveCommandLine(pid: pid)
-        self.fullPath = Self.resolveProcessPath(pid: pid)
-        self.appIcon = NSRunningApplication(processIdentifier: pid)?.icon
         self.startDate = Date()
         self.onExit = onExit
 
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self = self else { return }
-            Log.process.info("Observed exit of bound process \(self.processName) (PID: \(self.pid))")
+            Log.process.info("Observed exit of bound process PID \(self.pid)")
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 self.onExit?(self.pid)
@@ -163,7 +160,7 @@ public final class ProcessBinding: ProcessBindingProtocol, @unchecked Sendable {
         source.resume()
         self.source = source
 
-        Log.process.info("Bound process \(self.processName) (PID: \(pid))")
+        Log.process.info("Bound process PID \(pid)")
     }
 
     deinit {

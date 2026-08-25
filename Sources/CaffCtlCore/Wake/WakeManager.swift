@@ -13,18 +13,40 @@ public final class WakeManager: ObservableObject {
     private var trackedCaffeinatePIDs: Set<pid_t> = []
     private var expiryTask: Task<Void, Never>?
     private let bindingFactory: @Sendable (pid_t, @MainActor @Sendable @escaping (pid_t) -> Void) throws -> any ProcessBindingProtocol
+    private let signalSender: @Sendable (pid_t, Int32) -> Void
 
-    public init(
+    public convenience init(
         caffeinateProcess: any CaffeinateProcessProtocol = CaffeinateProcess(),
         bindingFactory: (@Sendable (pid_t, @MainActor @Sendable @escaping (pid_t) -> Void) throws -> any ProcessBindingProtocol)? = nil
     ) {
+        self.init(
+            caffeinateProcess: caffeinateProcess,
+            bindingFactory: bindingFactory,
+            signalSender: { pid, signal in kill(pid, signal) }
+        )
+    }
+
+    public convenience init(
+        caffeinateProcess: any CaffeinateProcessProtocol,
+        signalSender: @escaping @Sendable (pid_t, Int32) -> Void,
+        bindingFactory: @escaping @Sendable (pid_t, @MainActor @Sendable @escaping (pid_t) -> Void) throws -> any ProcessBindingProtocol
+    ) {
+        self.init(
+            caffeinateProcess: caffeinateProcess,
+            bindingFactory: bindingFactory,
+            signalSender: signalSender
+        )
+    }
+
+    private init(
+        caffeinateProcess: any CaffeinateProcessProtocol,
+        bindingFactory: (@Sendable (pid_t, @MainActor @Sendable @escaping (pid_t) -> Void) throws -> any ProcessBindingProtocol)?,
+        signalSender: @escaping @Sendable (pid_t, Int32) -> Void
+    ) {
         self.caffeinateProcess = caffeinateProcess
-        if let factory = bindingFactory {
-            self.bindingFactory = factory
-        } else {
-            self.bindingFactory = { pid, onExit in
-                try ProcessBinding(pid: pid, onExit: onExit)
-            }
+        self.signalSender = signalSender
+        self.bindingFactory = bindingFactory ?? { pid, onExit in
+            try ProcessBinding(pid: pid, onExit: onExit)
         }
 
         self.caffeinateProcess.onUnexpectedExit = { [weak self] in
@@ -90,7 +112,7 @@ public final class WakeManager: ObservableObject {
     }
 
     public func activateGlobal(duration: TimeInterval?, clientPID: pid_t? = nil) {
-        replaceGlobalClient(terminate: true)
+        clearGlobalClient()
         globalUsesExternalAssertion = false
 
         let session = GlobalSession(duration: duration)
@@ -100,7 +122,7 @@ public final class WakeManager: ObservableObject {
         if let pid = clientPID, pid > 0 {
             do {
                 self.globalClientBinding = try bindingFactory(pid) { [weak self] _ in
-                    self?.deactivateGlobal()
+                    self?.handleGlobalClientExit()
                 }
             } catch {
                 Log.wake.error("Failed to monitor global client PID \(pid): \(error.localizedDescription)")
@@ -127,10 +149,10 @@ public final class WakeManager: ObservableObject {
         }
 
         let binding = try bindingFactory(pid) { [weak self] _ in
-            self?.deactivateGlobal()
+            self?.handleGlobalClientExit()
         }
 
-        replaceGlobalClient(terminate: true)
+        clearGlobalClient()
         globalUsesExternalAssertion = true
         globalSession = GlobalSession(duration: duration)
         globalClientBinding = binding
@@ -151,23 +173,31 @@ public final class WakeManager: ObservableObject {
         expiryTask = nil
         globalSession = nil
 
-        replaceGlobalClient(terminate: true)
+        clearGlobalClient()
         globalUsesExternalAssertion = false
 
         Log.wake.info("\(reason)")
         reconcile()
     }
 
-    private func replaceGlobalClient(terminate: Bool) {
+    private func handleGlobalClientExit() {
+        expiryTask?.cancel()
+        expiryTask = nil
+        globalClientBinding?.cancel()
+        globalClientBinding = nil
+        globalSession = nil
+        globalUsesExternalAssertion = false
+        reconcile()
+    }
+
+    private func clearGlobalClient() {
         expiryTask?.cancel()
         expiryTask = nil
         guard let client = globalClientBinding else { return }
 
         globalClientBinding = nil
         client.cancel()
-        if terminate {
-            kill(client.pid, SIGTERM)
-        }
+        signalSender(client.pid, SIGTERM)
     }
 
     public func bindProcess(pid: pid_t) throws {
@@ -179,10 +209,10 @@ public final class WakeManager: ObservableObject {
         }
 
         let binding = try bindingFactory(pid) { [weak self] exitedPid in
-            self?.unbindProcess(pid: exitedPid)
+            self?.removeBinding(pid: exitedPid, terminateTrackedCaffeinate: false)
         }
         processBindings[pid] = binding
-        Log.wake.info("Successfully bound PID \(pid) (\(binding.processName))")
+        Log.wake.info("Successfully bound PID \(pid)")
         reconcile()
     }
 
@@ -197,17 +227,27 @@ public final class WakeManager: ObservableObject {
     }
 
     public func unbindProcess(pid: pid_t) {
-        if let binding = processBindings.removeValue(forKey: pid) {
-            trackedCaffeinatePIDs.remove(pid)
-            binding.cancel()
-            Log.wake.info("Unbound PID \(pid)")
-            reconcile()
+        removeBinding(pid: pid, terminateTrackedCaffeinate: true)
+    }
+
+    private func removeBinding(pid: pid_t, terminateTrackedCaffeinate: Bool) {
+        guard let binding = processBindings.removeValue(forKey: pid) else { return }
+
+        let isTrackedCaffeinate = trackedCaffeinatePIDs.remove(pid) != nil
+        binding.cancel()
+        if terminateTrackedCaffeinate && isTrackedCaffeinate {
+            signalSender(pid, SIGTERM)
         }
+        Log.wake.info("Unbound PID \(pid)")
+        reconcile()
     }
 
     private func cancelAllBindings() {
-        for (_, binding) in processBindings {
+        for (pid, binding) in processBindings {
             binding.cancel()
+            if trackedCaffeinatePIDs.contains(pid) {
+                signalSender(pid, SIGTERM)
+            }
         }
         processBindings.removeAll()
         trackedCaffeinatePIDs.removeAll()
@@ -216,7 +256,7 @@ public final class WakeManager: ObservableObject {
     public func stopAll() {
         expiryTask?.cancel()
         expiryTask = nil
-        replaceGlobalClient(terminate: true)
+        clearGlobalClient()
         globalUsesExternalAssertion = false
         globalSession = nil
         cancelAllBindings()
@@ -226,7 +266,7 @@ public final class WakeManager: ObservableObject {
     public func cleanup() {
         expiryTask?.cancel()
         expiryTask = nil
-        replaceGlobalClient(terminate: true)
+        clearGlobalClient()
         globalUsesExternalAssertion = false
         cancelAllBindings()
         globalSession = nil

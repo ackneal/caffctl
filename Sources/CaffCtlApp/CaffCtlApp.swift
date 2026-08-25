@@ -122,48 +122,6 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
     }
 }
 
-enum CLIInstaller {
-    static func installSymlinksIfNeeded() {
-        let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser
-        let localBin = home.appendingPathComponent(".local/bin")
-
-        // 1. Locate the embedded or sibling caffctl binary
-        let bundleURL = Bundle.main.bundleURL
-        var cliURL: URL? = nil
-
-        let appCliPath = bundleURL.appendingPathComponent("Contents/MacOS/caffctl")
-        if fm.isExecutableFile(atPath: appCliPath.path) {
-            cliURL = appCliPath
-        } else {
-            let siblingCli = bundleURL.deletingLastPathComponent().appendingPathComponent("caffctl")
-            if fm.isExecutableFile(atPath: siblingCli.path) {
-                cliURL = siblingCli
-            }
-        }
-
-        guard let sourceCLI = cliURL else { return }
-
-        // 2. Ensure ~/.local/bin exists
-        try? fm.createDirectory(at: localBin, withIntermediateDirectories: true)
-
-        // 3. Create or update symlink for caffeinate ONLY
-        let caffeinateTarget = localBin.appendingPathComponent("caffeinate")
-        updateSymlink(at: caffeinateTarget, pointingTo: sourceCLI.path)
-
-        Log.app.info("caffeinate symlink verified in \(localBin.path)")
-    }
-
-    private static func updateSymlink(at targetURL: URL, pointingTo destinationPath: String) {
-        let fm = FileManager.default
-        if let currentDest = try? fm.destinationOfSymbolicLink(atPath: targetURL.path), currentDest == destinationPath {
-            return
-        }
-        try? fm.removeItem(at: targetURL)
-        try? fm.createSymbolicLink(atPath: targetURL.path, withDestinationPath: destinationPath)
-    }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
@@ -171,7 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        CLIInstaller.installSymlinksIfNeeded()
         let state = AppState()
         self.appState = state
         self.statusItemController = StatusItemPopoverController(appState: state)

@@ -72,7 +72,7 @@ caffeinate -w 84210
 caffeinate -t 3600
 ```
 
-> Caffeinate without a utility or `-w` target appears as **Global**. `caffeinate <command>` and `caffeinate -w <PID>` appear under **Sessions**. Tracking does not control native caffeinate behavior.
+> Caffeinate without a utility or `-w` target appears as **Global**. `caffeinate <command>` and `caffeinate -w <PID>` appear under **Sessions**. CaffCtl may stop the tracked native caffeinate process to release its assertion, but never signals its command or `-w` target.
 
 ---
 
@@ -85,7 +85,7 @@ caffeinate -t 3600
 | **Inspect Active Sessions** | Click `Sessions [ N ]` to view all watching processes. |
 | **Copy Process PID** | Click any process icon in the Sessions list to copy its PID (with green `✓` feedback). |
 | **View Full Command Line** | Hover your mouse over any session row to see the exact terminal command. |
-| **Stop Tracking a Session** | Click **Release** next to a session. This removes it from CaffCtl without terminating the process or its native assertion. |
+| **Release a Session** | Click **Release** to terminate the tracked native caffeinate assertion. Its wrapped command or `-w` target keeps running. |
 | **Quit CaffCtl** | Click **Quit** (`⌘Q`) at the bottom right. |
 
 ---
