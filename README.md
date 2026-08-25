@@ -23,14 +23,14 @@ If you are a developer, designer, or power user running long-running jobs (e.g. 
   A clean, monochrome SF Symbol coffee cup indicator that seamlessly blends with your macOS desktop. Click to see remaining time, active sessions, and quick toggles.
 - ⚡ **Zero-Configuration Timers**  
   Quickly set sleep prevention for **30 minutes**, **1 hour**, **2 hours**, **4 hours**, or custom minutes — or keep awake indefinitely.
-- 🛠 **100% Drop-in `caffeinate` Wrapper**  
-  Use `caffeinate` exactly like you always have (`caffeinate make`, `caffeinate sleep 3600 &`). CaffCtl automatically captures the process, displays it in your Menu Bar, and releases sleep lock the moment the job finishes.
+- 🛠 **Native `caffeinate` Wrapper**
+  Use `caffeinate` exactly as you normally would (`caffeinate make`, `caffeinate -d -i -t 3600`). Every argument is passed unchanged to `/usr/bin/caffeinate`; CaffCtl only adds Menu Bar tracking.
 - 🔍 **Real-Time Process & Session Monitor**  
   View all active processes keeping your Mac awake with elapsed running times. Hover to inspect full command lines, click the process icon to copy its PID, or click **Release** to stop watching anytime.
 - 🚀 **Auto-Launching Terminal Integration**  
-  Running `caffeinate` in terminal automatically wakes the Menu Bar App in the background within 0.2s with zero setup.
+  Running `caffeinate` in Terminal automatically launches the Menu Bar App in the background for tracking.
 - 🛡 **Safe, Reliable & Energy Efficient**  
-  No orphaned processes, automatic restart recovery, zero battery drain when inactive, and complete cleanup on quit.
+  Native caffeinate remains responsible for the sleep assertion and releases it when the process exits. If the App or tracking IPC is unavailable, sleep prevention still works; only Menu Bar tracking is skipped.
 
 ---
 
@@ -55,7 +55,7 @@ cd caffctl
 
 ### 1. Transparent `caffeinate` Wrapper Mode
 
-Use `caffeinate` exactly like native macOS `caffeinate` with 100% argument and behavior compatibility:
+Wrapper arguments are passed unchanged to native macOS `/usr/bin/caffeinate`:
 
 ```bash
 # Wrap long-running compilation or scripts in foreground
@@ -72,7 +72,7 @@ caffeinate -w 84210
 caffeinate -t 3600
 ```
 
-> 💡 **Bonus**: Any command run with `caffeinate` will immediately show up in your Menu Bar Sessions list with its elapsed time and process icon!
+> Caffeinate without a utility or `-w` target appears as **Global**. `caffeinate <command>` and `caffeinate -w <PID>` appear under **Sessions**. Tracking does not control native caffeinate behavior.
 
 ---
 
@@ -85,7 +85,7 @@ caffeinate -t 3600
 | **Inspect Active Sessions** | Click `Sessions [ N ]` to view all watching processes. |
 | **Copy Process PID** | Click any process icon in the Sessions list to copy its PID (with green `✓` feedback). |
 | **View Full Command Line** | Hover your mouse over any session row to see the exact terminal command. |
-| **Release a Process Lock** | Click the **Release** button next to any running session. |
+| **Stop Tracking a Session** | Click **Release** next to a session. This removes it from CaffCtl without terminating the process or its native assertion. |
 | **Quit CaffCtl** | Click **Quit** (`⌘Q`) at the bottom right. |
 
 ---
@@ -94,10 +94,10 @@ caffeinate -t 3600
 
 | Command | Action |
 | :--- | :--- |
-| `caffeinate &` | Activate indefinite wake session in background (shows in Sessions) |
-| `caffeinate -t <seconds>` | Activate wake session for duration in seconds |
-| `caffeinate -w <PID>` | Keep awake while specific process PID is running |
-| `caffeinate <command>` | Run command with automatic sleep lock & session monitoring |
+| `caffeinate &` | Run an indefinite native wake assertion in the background (shows as Global) |
+| `caffeinate -t <seconds>` | Run a timed native wake assertion (shows as Global) |
+| `caffeinate -w <PID>` | Keep awake while a PID is running (shows in Sessions) |
+| `caffeinate <command>` | Run a command with a native sleep assertion and Session monitoring |
 
 ---
 
