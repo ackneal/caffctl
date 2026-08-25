@@ -125,12 +125,27 @@ public final class CaffeinateProcess: CaffeinateProcessProtocol, @unchecked Send
     public func stop() {
         lock.lock()
         isExpectedToRun = false
-        if let proc = process, proc.isRunning {
-            proc.terminationHandler = nil
-            proc.terminate()
-            Log.wake.info("caffeinate process terminated")
+        guard let proc = process else {
+            lock.unlock()
+            return
         }
         process = nil
+        proc.terminationHandler = nil
         lock.unlock()
+
+        guard proc.isRunning else { return }
+
+        proc.terminate()
+        let deadline = Date().addingTimeInterval(1.0)
+        while proc.isRunning && Date() < deadline {
+            usleep(10_000)
+        }
+        if proc.isRunning {
+            kill(proc.processIdentifier, SIGKILL)
+            proc.waitUntilExit()
+            Log.wake.warning("caffeinate did not terminate within 1s and was killed")
+        } else {
+            Log.wake.info("caffeinate process terminated")
+        }
     }
 }

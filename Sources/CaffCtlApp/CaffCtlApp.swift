@@ -21,15 +21,6 @@ final class AppState: ObservableObject {
             Log.app.error("Failed to start IPC server on launch: \(error.localizedDescription)")
         }
 
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cleanup()
-            }
-        }
     }
 
     func cleanup() {
@@ -171,6 +162,7 @@ enum CLIInstaller {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
     private var statusItemController: StatusItemPopoverController?
@@ -181,6 +173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = AppState()
         self.appState = state
         self.statusItemController = StatusItemPopoverController(appState: state)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        appState?.cleanup()
     }
 }
 
