@@ -378,6 +378,41 @@ public final class BindingTracker: @unchecked Sendable {
         }
     }
 
+    @Test @MainActor
+    func trackedGlobalCaffeinateDoesNotStartManagedAssertion() throws {
+        let mockCaffeinate = MockCaffeinateProcess()
+        let manager = WakeManager(caffeinateProcess: mockCaffeinate) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackGlobal(pid: 8000, duration: 3)
+
+        #expect(manager.globalSession?.duration == 3)
+        #expect(manager.processBindings.isEmpty)
+        #expect(!mockCaffeinate.isRunning)
+        #expect(mockCaffeinate.startCallCount == 0)
+        #expect(manager.statusInfo.caffeinateRunning)
+    }
+
+    @Test @MainActor
+    func trackedCaffeinateDoesNotStartManagedAssertion() throws {
+        let mockCaffeinate = MockCaffeinateProcess()
+        let manager = WakeManager(caffeinateProcess: mockCaffeinate) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackCaffeinate(pid: 8001)
+
+        #expect(manager.isActive)
+        #expect(!mockCaffeinate.isRunning)
+        #expect(mockCaffeinate.startCallCount == 0)
+        #expect(manager.statusInfo.caffeinateRunning)
+
+        manager.unbindProcess(pid: 8001)
+        #expect(!manager.isActive)
+        #expect(!manager.statusInfo.caffeinateRunning)
+    }
+
     // Test 14: Malformed IPC message -> clean rejection without crash
     @Test @MainActor
     func test14_malformedIPCMessageCleanRejection() async throws {

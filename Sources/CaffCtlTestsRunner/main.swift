@@ -38,7 +38,7 @@ final class MockTracker: @unchecked Sendable {
 @MainActor
 func runAllTests() async {
     print("========================================")
-    print("Running CaffCtl Suite (14 Invariant Tests)")
+    print("Running CaffCtl Suite (15 Invariant Tests)")
     print("========================================")
     
     var passed = 0
@@ -275,8 +275,26 @@ func runAllTests() async {
         assert(threwNegative)
     }
 
-    // 14. Malformed IPC message -> clean rejection without crash
-    await runTest(name: "Test 14: Malformed IPC message -> clean rejection without crash") {
+    // 14. Tracked native caffeinate does not start a managed assertion
+    await runTest(name: "Test 14: Tracked caffeinate remains tracking-only") {
+        let mock = MockCaffeinateProcess()
+        let manager = WakeManager(caffeinateProcess: mock) { pid, onExit in
+            MockProcessBinding(pid: pid, onExit: onExit)
+        }
+
+        try manager.trackCaffeinate(pid: 8001)
+        assert(manager.isActive)
+        assert(!mock.isRunning)
+        assert(mock.startCallCount == 0)
+        assert(manager.statusInfo.caffeinateRunning)
+
+        manager.unbindProcess(pid: 8001)
+        assert(!manager.isActive)
+        assert(!manager.statusInfo.caffeinateRunning)
+    }
+
+    // 15. Malformed IPC message -> clean rejection without crash
+    await runTest(name: "Test 15: Malformed IPC message -> clean rejection without crash") {
         let mock = MockCaffeinateProcess()
         let manager = WakeManager(caffeinateProcess: mock)
         let socketPath = "/tmp/caff-test-\(UUID().uuidString.prefix(8)).sock"

@@ -52,8 +52,10 @@ public struct StatusPayload: Codable, Sendable, Equatable {
 
 public enum IPCRequest: Codable, Sendable, Equatable {
     case activateGlobal(duration: TimeInterval?, clientPID: pid_t? = nil)
+    case trackGlobal(pid: pid_t, duration: TimeInterval?)
     case deactivateGlobal
     case bindProcess(pid: pid_t)
+    case trackProcess(pid: pid_t)
     case unbindProcess(pid: pid_t)
     case status
     case stop

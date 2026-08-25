@@ -237,6 +237,14 @@ public final class IPCServer: @unchecked Sendable {
             let durStr = duration.map { "\($0)s" } ?? "indefinite"
             return .ok(message: "Activated global wake session (\(durStr))")
 
+        case .trackGlobal(let pid, let duration):
+            do {
+                try wakeManager.trackGlobal(pid: pid, duration: duration)
+                return .ok(message: "Tracking global caffeinate (PID: \(pid))")
+            } catch {
+                return .error(message: error.localizedDescription)
+            }
+
         case .deactivateGlobal:
             wakeManager.deactivateGlobal()
             return .ok(message: "Deactivated global wake session")
@@ -246,6 +254,14 @@ public final class IPCServer: @unchecked Sendable {
                 try wakeManager.bindProcess(pid: pid)
                 let name = wakeManager.processBindings[pid]?.processName ?? "PID \(pid)"
                 return .ok(message: "Bound process \(name) (PID: \(pid))")
+            } catch {
+                return .error(message: error.localizedDescription)
+            }
+
+        case .trackProcess(let pid):
+            do {
+                try wakeManager.trackCaffeinate(pid: pid)
+                return .ok(message: "Tracking caffeinate (PID: \(pid))")
             } catch {
                 return .error(message: error.localizedDescription)
             }

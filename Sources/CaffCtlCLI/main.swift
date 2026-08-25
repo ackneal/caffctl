@@ -83,160 +83,103 @@ func printStatus(_ status: StatusPayload) {
 }
 
 func runCaffeinateWrapper(rawArgs: [String]) {
-    var i = 0
-    var watchPID: pid_t? = nil
-    var timeoutDuration: TimeInterval? = nil
-    var commandArgs: [String] = []
+    let classification = classifyCaffeinate(arguments: rawArgs)
+    spawnTrackingHelper(
+        pid: ProcessInfo.processInfo.processIdentifier,
+        asGlobal: classification.isGlobal,
+        duration: classification.duration
+    )
 
-    while i < rawArgs.count {
-        let arg = rawArgs[i]
-        if arg == "-w" && i + 1 < rawArgs.count {
-            watchPID = pid_t(rawArgs[i + 1])
-            i += 2
-        } else if arg.hasPrefix("-w") && arg.count > 2 {
-            let pidStr = String(arg.dropFirst(2))
-            watchPID = pid_t(pidStr)
-            i += 1
-        } else if arg == "-t" && i + 1 < rawArgs.count {
-            timeoutDuration = TimeInterval(rawArgs[i + 1])
-            i += 2
-        } else if arg.hasPrefix("-t") && arg.count > 2 {
-            let durStr = String(arg.dropFirst(2))
-            timeoutDuration = TimeInterval(durStr)
-            i += 1
-        } else if ["-d", "-i", "-m", "-s", "-u"].contains(arg) {
-            i += 1
-        } else if arg.hasPrefix("-") && arg.count > 1 && arg.dropFirst().allSatisfy({ "dimsu".contains($0) }) {
-            i += 1
-        } else {
-            commandArgs = Array(rawArgs[i...])
-            break
+    let executable = "/usr/bin/caffeinate"
+    var arguments = ([executable] + rawArgs).map { strdup($0) }
+    arguments.append(nil)
+    defer {
+        for argument in arguments where argument != nil {
+            free(argument)
         }
     }
 
-    // 1. If running a utility command (e.g. caffeinate sleep 10 or caffeinate make):
-    if !commandArgs.isEmpty {
-        runUtilityCommandWithWakeLock(commandArgs: commandArgs)
+    execv(executable, &arguments)
+    perror("caffeinate: failed to execute /usr/bin/caffeinate")
+    exit(127)
+}
+
+func classifyCaffeinate(arguments: [String]) -> (isGlobal: Bool, duration: TimeInterval?) {
+    var index = 0
+    var duration: TimeInterval?
+
+    while index < arguments.count {
+        let argument = arguments[index]
+        if argument == "-w" || argument.hasPrefix("-w") && argument.count > 2 {
+            return (false, duration)
+        }
+        if argument == "-t", index + 1 < arguments.count {
+            duration = TimeInterval(arguments[index + 1])
+            index += 2
+            continue
+        }
+        if argument.hasPrefix("-t"), argument.count > 2 {
+            duration = TimeInterval(argument.dropFirst(2))
+            index += 1
+            continue
+        }
+        if argument.hasPrefix("-"), argument.dropFirst().allSatisfy({ "dimsu".contains($0) }) {
+            index += 1
+            continue
+        }
+        return (false, duration)
+    }
+
+    return (true, duration)
+}
+
+func spawnTrackingHelper(pid: pid_t, asGlobal: Bool, duration: TimeInterval?) {
+    let mode = asGlobal ? "global" : "session"
+    let durationArgument = duration.map { String($0) } ?? "none"
+    let result = spawnCaffCtl(arguments: ["__spawn-tracker", mode, String(pid), durationArgument])
+    guard result.error == 0 else {
+        fputs("caffeinate: CaffCtl tracking helper unavailable (error \(result.error))\n", stderr)
         return
     }
 
-    // 2. If watching an existing PID (e.g. caffeinate -w 12345):
-    if let pid = watchPID, pid > 0 {
-        runWatchPIDWakeLock(targetPID: pid)
-        return
-    }
-
-    // 3. If timed wake lock (e.g. caffeinate -t 3600):
-    if let dur = timeoutDuration, dur > 0 {
-        runTimedWakeLock(seconds: dur)
-        return
-    }
-
-    // 4. Indefinite wake lock (e.g. caffeinate or caffeinate &):
-    runIndefiniteWakeLock()
+    waitpid(result.pid, nil, 0)
 }
 
-func runIndefiniteWakeLock() {
+func spawnCaffCtl(arguments: [String]) -> (pid: pid_t, error: Int32) {
+    guard let executableURL = Bundle.main.executableURL else {
+        return (0, ENOENT)
+    }
+    let executable = executableURL.resolvingSymlinksInPath().path
+    let argumentStrings = [executable] + arguments
+    var cArguments: [UnsafeMutablePointer<CChar>?] = argumentStrings.map { strdup($0) }
+    cArguments.append(nil)
+    defer {
+        for argument in cArguments where argument != nil {
+            free(argument)
+        }
+    }
+
+    var pid: pid_t = 0
+    let error = posix_spawn(&pid, executable, nil, nil, &cArguments, environ)
+    return (pid, error)
+}
+
+func trackCaffeinate(pid: pid_t, asGlobal: Bool, duration: TimeInterval?) {
     let client = IPCClient()
     if !client.isServerResponsive(timeout: 0.15) {
         launchAppIfNeeded(client: client)
     }
-
-    let myPID = ProcessInfo.processInfo.processIdentifier
-    _ = try? client.sendSync(request: .activateGlobal(duration: nil, clientPID: myPID), timeout: 2.0)
-
-    signal(SIGINT) { _ in
-        let c = IPCClient()
-        _ = try? c.sendSync(request: .deactivateGlobal, timeout: 1.0)
-        exit(0)
-    }
-    signal(SIGTERM) { _ in
-        exit(0)
-    }
-
-    while true {
-        pause()
-    }
-}
-
-func runTimedWakeLock(seconds: TimeInterval) {
-    let client = IPCClient()
-    if !client.isServerResponsive(timeout: 0.15) {
-        launchAppIfNeeded(client: client)
-    }
-
-    let myPID = ProcessInfo.processInfo.processIdentifier
-    _ = try? client.sendSync(request: .activateGlobal(duration: seconds, clientPID: myPID), timeout: 2.0)
-
-    signal(SIGINT) { _ in
-        let c = IPCClient()
-        _ = try? c.sendSync(request: .deactivateGlobal, timeout: 1.0)
-        exit(0)
-    }
-    signal(SIGTERM) { _ in
-        exit(0)
-    }
-
-    let deadline = Date().addingTimeInterval(seconds)
-    while Date() < deadline {
-        let remaining = deadline.timeIntervalSinceNow
-        if remaining <= 0 { break }
-        usleep(useconds_t(min(remaining, 1.0) * 1_000_000))
-    }
-
-    _ = try? client.sendSync(request: .deactivateGlobal, timeout: 1.0)
-    exit(0)
-}
-
-func runWatchPIDWakeLock(targetPID: pid_t) {
-    guard ProcessBinding.processExists(pid: targetPID) else {
-        fputs("caffeinate: PID \(targetPID) is not running\n", stderr)
-        exit(1)
-    }
-
-    let client = IPCClient()
-    if !client.isServerResponsive(timeout: 0.15) {
-        launchAppIfNeeded(client: client)
-    }
-
-    _ = try? client.sendSync(request: .bindProcess(pid: targetPID), timeout: 2.0)
-
-    signal(SIGINT) { _ in exit(130) }
-    signal(SIGTERM) { _ in exit(143) }
-
-    while ProcessBinding.processExists(pid: targetPID) {
-        usleep(250_000)
-    }
-
-    exit(0)
-}
-
-func runUtilityCommandWithWakeLock(commandArgs: [String]) {
-    let client = IPCClient()
-    if !client.isServerResponsive(timeout: 0.15) {
-        launchAppIfNeeded(client: client)
-    }
-
-    let proc = Process()
-    proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    proc.arguments = commandArgs
-    proc.standardInput = FileHandle.standardInput
-    proc.standardOutput = FileHandle.standardOutput
-    proc.standardError = FileHandle.standardError
 
     do {
-        try proc.run()
-        let childPID = proc.processIdentifier
-        _ = try? client.sendSync(request: .bindProcess(pid: childPID), timeout: 2.0)
-
-        signal(SIGINT) { _ in }
-        signal(SIGTERM) { _ in }
-
-        proc.waitUntilExit()
-        exit(proc.terminationStatus)
+        let request: IPCRequest = asGlobal
+            ? .trackGlobal(pid: pid, duration: duration)
+            : .trackProcess(pid: pid)
+        let response = try client.sendSync(request: request, timeout: 2.0)
+        if case .error(let message) = response {
+            fputs("caffeinate: CaffCtl tracking unavailable: \(message)\n", stderr)
+        }
     } catch {
-        fputs("caffeinate: Failed to execute '\(commandArgs[0])': \(error.localizedDescription)\n", stderr)
-        exit(1)
+        fputs("caffeinate: CaffCtl tracking unavailable: \(error.localizedDescription)\n", stderr)
     }
 }
 
@@ -257,6 +200,22 @@ func runCLI() {
     }
 
     let first = rawArgs[0]
+
+    if first == "__spawn-tracker" {
+        guard rawArgs.count == 4 else { exit(1) }
+        let result = spawnCaffCtl(arguments: ["__track-caffeinate"] + Array(rawArgs.dropFirst()))
+        exit(result.error == 0 ? 0 : 1)
+    }
+
+    if first == "__track-caffeinate" {
+        guard rawArgs.count == 4,
+              let pid = pid_t(rawArgs[2]), pid > 0 else {
+            exit(1)
+        }
+        let duration = rawArgs[3] == "none" ? nil : TimeInterval(rawArgs[3])
+        trackCaffeinate(pid: pid, asGlobal: rawArgs[1] == "global", duration: duration)
+        exit(0)
+    }
 
     switch first {
     case "-h", "--help", "help":
@@ -322,9 +281,6 @@ func handleResponse(_ response: IPCResponse) -> Never {
 }
 
 func launchAppIfNeeded(client: IPCClient) {
-    // 1. Remove stale socket file if any
-    unlink(client.socketPath)
-
     let rawPath = CommandLine.arguments[0]
     let baseDir = URL(fileURLWithPath: rawPath).resolvingSymlinksInPath().deletingLastPathComponent()
 
