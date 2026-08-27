@@ -21,6 +21,25 @@ public final class MenuBarNavigationState: ObservableObject {
     }
 }
 
+private struct MenuHoverButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        MenuHoverButton(configuration: configuration)
+    }
+
+    private struct MenuHoverButton: View {
+        let configuration: Configuration
+        @State private var isHovered = false
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(isHovered ? Color.primary : Color.secondary)
+                .background(isHovered ? Color.secondary.opacity(0.16) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .onHover { isHovered = $0 }
+        }
+    }
+}
+
 public struct MenuBarView: View {
     @ObservedObject public var wakeManager: WakeManager
     @ObservedObject public var navState: MenuBarNavigationState
@@ -75,8 +94,6 @@ public struct MenuBarView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 7)
         .frame(width: 250)
     }
 
@@ -145,18 +162,17 @@ public struct MenuBarView: View {
                     HStack(spacing: 6) {
                         Text("Set Duration")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
 
                         Spacer()
 
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.6))
                     }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 7)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(.vertical, 7)
+                .buttonStyle(MenuHoverButtonStyle())
             }
 
             Divider()
@@ -168,14 +184,12 @@ public struct MenuBarView: View {
                 HStack(spacing: 6) {
                     Text("Other Sessions")
                         .font(.system(size: 11))
-                        .foregroundColor(.secondary)
 
                     Spacer()
 
                     if !wakeManager.processBindings.isEmpty {
                         Text("\(wakeManager.processBindings.count)")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .foregroundColor(.secondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
                             .background(Color.secondary.opacity(0.18))
@@ -184,37 +198,31 @@ public struct MenuBarView: View {
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.6))
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 7)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .padding(.vertical, 7)
+            .buttonStyle(MenuHoverButtonStyle())
 
             Divider()
 
             // 5. Quit (tight footer)
-            HStack {
-                Spacer()
-
-                Button {
-                    wakeManager.cleanup()
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "power")
-                            .font(.system(size: 10, weight: .medium))
-                        Text("Quit")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .foregroundColor(.secondary)
+            Button {
+                wakeManager.cleanup()
+                NSApplication.shared.terminate(nil)
+            } label: {
+                HStack {
+                    Text("Quit")
+                        .font(.system(size: 10, weight: .medium))
+                    Spacer()
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut("q")
+                .padding(.horizontal, 2)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(MenuHoverButtonStyle())
+            .keyboardShortcut("q")
             .padding(.top, 7)
             .padding(.bottom, 2)
         }
