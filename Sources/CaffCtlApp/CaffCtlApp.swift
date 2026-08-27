@@ -31,9 +31,10 @@ final class AppState: ObservableObject {
 }
 
 @MainActor
-final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
+final class StatusItemPopoverController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
+    private var menu: NSMenu!
+    private var isMenuOpen = false
     private let appState: AppState
     private let navState = MenuBarNavigationState()
     private var cancellables = Set<AnyCancellable>()
@@ -42,26 +43,22 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
         self.appState = appState
         super.init()
 
-        // 1. Configure NSPopover with constant fixed size and animates = false
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
-        popover.contentSize = NSSize(width: 250, height: 178)
-        let hostingController = NSHostingController(rootView: MenuBarView(wakeManager: appState.wakeManager, navState: navState))
-        // Popover height auto-fits the SwiftUI content — no dead space below Quit.
-        hostingController.sizingOptions = .preferredContentSize
-        popover.contentViewController = hostingController
-        popover.delegate = self
-        self.popover = popover
+        let hostingView = NSHostingView(rootView: MenuBarView(wakeManager: appState.wakeManager, navState: navState))
+        hostingView.frame.size = hostingView.fittingSize
 
-        // 2. Configure NSStatusItem
+        let menuItem = NSMenuItem()
+        menuItem.view = hostingView
+
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = self
+        menu.addItem(menuItem)
+        self.menu = menu
+
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = self.statusItem.button {
-            button.target = self
-            button.action = #selector(togglePopover(_:))
-        }
+        self.statusItem.menu = menu
 
-        // 3. Observe WakeManager changes
+        // Observe WakeManager changes
         appState.wakeManager.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -73,7 +70,7 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
 
         updateStatusItemTitleNow()
 
-        // Refresh title every second only when popover is closed to avoid anchor movement
+        // Refresh title every second only when the menu is closed to avoid anchor movement
         Timer.publish(every: 1.0, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
@@ -83,8 +80,7 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
     }
 
     private func updateStatusItemTitleIfNeeded() {
-        // Do NOT resize status item button while popover is open to prevent macOS popover re-anchor jumps!
-        guard !popover.isShown else { return }
+        guard !isMenuOpen else { return }
         updateStatusItemTitleNow()
     }
 
@@ -100,24 +96,17 @@ final class StatusItemPopoverController: NSObject, NSPopoverDelegate {
         button.title = ""
     }
 
-    @objc private func togglePopover(_ sender: AnyObject?) {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            // ALWAYS reset to main screen before opening!
-            navState.resetToMain()
-            navState.isPopoverPresented = true
-            updateStatusItemTitleNow()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-        }
+    func menuWillOpen(_ menu: NSMenu) {
+        navState.resetToMain()
+        navState.isPopoverPresented = true
+        isMenuOpen = true
+        updateStatusItemTitleNow()
     }
 
-    func popoverDidClose(_ notification: Notification) {
-        // ALWAYS reset to main screen on close!
+    func menuDidClose(_ menu: NSMenu) {
         navState.isPopoverPresented = false
         navState.resetToMain()
+        isMenuOpen = false
         updateStatusItemTitleNow()
     }
 }
