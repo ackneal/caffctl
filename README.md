@@ -78,11 +78,13 @@ Running the wrapper automatically launches CaffCtl for menu bar tracking. Native
 
 ## Global vs Sessions
 
+CaffCtl's built-in Global switch and duration controls run a managed assertion equivalent to `caffeinate -d -i -m -w <CaffCtl PID>`. This requests prevention of display, system-idle, and disk-idle sleep until the session ends or CaffCtl exits. It does not prevent manual locking or guarantee that every task continues after lock or network/system events.
+
 CaffCtl groups native caffeinate assertions by how they are used:
 
 | Type | Examples | Menu bar behavior |
 | :--- | :--- | :--- |
-| **Global** | `caffeinate &`, `caffeinate -i -t 3600` | Shows one indefinite or timed Global assertion. Starting another Global replaces the previous tracked Global. |
+| **Global** | `caffeinate &`, `caffeinate -i -t 3600`, built-in Global switch | Shows one indefinite or timed Global assertion. Starting another Global replaces the previous tracked Global. Built-in controls request display, system-idle, and disk-idle sleep prevention. |
 | **Session** | `caffeinate make`, `caffeinate -w 84210` | Shows each tracked native caffeinate PID under Sessions with elapsed time and process metadata. |
 
 ## Process Ownership and Safe Release
