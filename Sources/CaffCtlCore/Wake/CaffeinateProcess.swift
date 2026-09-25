@@ -84,7 +84,7 @@ public final class CaffeinateProcess: CaffeinateProcessProtocol, @unchecked Send
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: Self.caffeinatePath)
-        proc.arguments = ["-i", "-w", String(targetPID)]
+        proc.arguments = ["-d", "-i", "-m", "-w", String(targetPID)]
         proc.standardInput = FileHandle.nullDevice
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
