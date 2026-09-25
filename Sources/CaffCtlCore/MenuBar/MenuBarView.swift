@@ -21,6 +21,17 @@ public final class MenuBarNavigationState: ObservableObject {
     }
 }
 
+private struct MenuHoverBackground: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(isHovered ? Color.secondary.opacity(0.16) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .onHover { isHovered = $0 }
+    }
+}
+
 private struct MenuHoverButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         MenuHoverButton(configuration: configuration)
@@ -32,7 +43,6 @@ private struct MenuHoverButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(isHovered ? Color.primary : Color.secondary)
                 .background(isHovered ? Color.secondary.opacity(0.16) : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .onHover { isHovered = $0 }
@@ -100,7 +110,6 @@ public struct MenuBarView: View {
     private func globalSessionTimeLabel(_ global: GlobalSession, at date: Date) -> some View {
         Text(globalSessionTimeText(global, at: date))
             .font(.system(size: 11).monospacedDigit())
-            .foregroundColor(.secondary)
     }
 
     // MARK: - Main Screen View
@@ -110,7 +119,6 @@ public struct MenuBarView: View {
             HStack(spacing: 8) {
                 Text("CaffCtl")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.primary)
 
                 Spacer()
 
@@ -139,7 +147,6 @@ public struct MenuBarView: View {
                 HStack(spacing: 8) {
                     Text("caffeinate")
                         .font(.system(size: 11))
-                        .foregroundColor(.secondary)
 
                     Spacer()
 
@@ -161,7 +168,7 @@ public struct MenuBarView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Text("Set Duration")
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
 
                         Spacer()
 
@@ -170,6 +177,7 @@ public struct MenuBarView: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 7)
+                    .foregroundColor(.secondary)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(MenuHoverButtonStyle())
@@ -183,7 +191,7 @@ public struct MenuBarView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text("Other Sessions")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
 
                     Spacer()
 
@@ -201,6 +209,7 @@ public struct MenuBarView: View {
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 7)
+                .foregroundColor(.secondary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(MenuHoverButtonStyle())
@@ -214,7 +223,7 @@ public struct MenuBarView: View {
             } label: {
                 HStack {
                     Text("Quit")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                     Spacer()
                 }
                 .padding(.horizontal, 2)
@@ -230,7 +239,7 @@ public struct MenuBarView: View {
 
     // MARK: - Duration Selection View
     private var durationSelectionView: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             // Header with Back button and top-aligned Clear button
             HStack {
                 Button {
@@ -244,7 +253,6 @@ public struct MenuBarView: View {
                     }
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())
-                    .foregroundColor(.primary)
                 }
                 .buttonStyle(.plain)
 
@@ -257,10 +265,10 @@ public struct MenuBarView: View {
                         HStack(spacing: 2) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 10))
+                                .foregroundColor(.red)
                             Text("Clear")
                                 .font(.system(size: 11, weight: .medium))
                         }
-                        .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
                 }
@@ -276,7 +284,7 @@ public struct MenuBarView: View {
                 ("4 hours", 4 * 60 * 60)
             ]
 
-            VStack(spacing: 2) {
+            VStack(spacing: 0) {
                 ForEach(durations, id: \.1) { item in
                     let isChecked = wakeManager.globalSession != nil && !wakeManager.globalSession!.isExpired && wakeManager.globalSession?.duration == item.1
                     durationRow(title: item.0, duration: item.1, isChecked: isChecked)
@@ -308,6 +316,7 @@ public struct MenuBarView: View {
                     .buttonStyle(.plain)
                 }
                 .frame(height: 20)
+                .padding(.top, 4)
             } else {
                 Button {
                     navState.showingCustomInput = true
@@ -315,13 +324,14 @@ public struct MenuBarView: View {
                     HStack {
                         Text("Custom…")
                             .font(.system(size: 12))
-                            .foregroundColor(.primary)
                         Spacer()
                     }
+                    .padding(.horizontal, 6)
                     .contentShape(Rectangle())
                     .frame(height: 20)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(MenuHoverButtonStyle())
+                .padding(.top, 4)
             }
         }
     }
@@ -338,7 +348,6 @@ public struct MenuBarView: View {
             HStack {
                 Text(title)
                     .font(.system(size: 12))
-                    .foregroundColor(.primary)
 
                 Spacer()
 
@@ -348,10 +357,11 @@ public struct MenuBarView: View {
                         .foregroundColor(.accentColor)
                 }
             }
+            .padding(.horizontal, 6)
             .contentShape(Rectangle())
             .frame(height: 20)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MenuHoverButtonStyle())
     }
 
     // MARK: - Sessions List View
@@ -369,7 +379,6 @@ public struct MenuBarView: View {
                 }
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
-                .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
             .frame(height: 28)
@@ -381,7 +390,6 @@ public struct MenuBarView: View {
                     Spacer()
                     Text("No active sessions")
                         .font(.system(size: 11))
-                        .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                     Spacer()
                 }
@@ -391,6 +399,10 @@ public struct MenuBarView: View {
                         VStack(spacing: 4) {
                             ForEach(Array(wakeManager.processBindings.values.sorted { $0.pid < $1.pid }), id: \.pid) { binding in
                                 let elapsed = context.date.timeIntervalSince(binding.startDate)
+                                let pidHelpText = copiedPID == binding.pid
+                                    ? "Copied PID: \(binding.pid)!"
+                                    : "Click to copy PID: \(binding.pid)"
+
                                 HStack(spacing: 8) {
                                 Button {
                                     NSPasteboard.general.clearContents()
@@ -422,17 +434,15 @@ public struct MenuBarView: View {
                                     }
                                 }
                                 .buttonStyle(.plain)
-                                .help(copiedPID == binding.pid ? "Copied PID: \(binding.pid)!" : "Click to copy PID: \(binding.pid)")
+                                .help(pidHelpText)
 
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(binding.processName)
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(.primary)
+                                        .font(.system(size: 12, weight: .semibold))
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                     Text(formatElapsedText(elapsed))
-                                        .font(.system(size: 9))
-                                        .foregroundColor(.secondary)
+                                        .font(.system(size: 10))
                                 }
 
                                 Spacer()
@@ -443,8 +453,10 @@ public struct MenuBarView: View {
                                 .buttonStyle(.bordered)
                                 .controlSize(.mini)
                             }
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 7)
                                 .contentShape(Rectangle())
+                                .modifier(MenuHoverBackground())
                                 .help(binding.commandLine)
                             }
                         }
